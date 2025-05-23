@@ -45,7 +45,7 @@ Navigate to **Settings → GF Shopify** and configure:
 - **Shopify Domain**: `your-store.myshopify.com` (without https://)
 - **Admin API Access Token**: From your private app
 - **Gravity Form ID**: ID of the form to integrate
-- **Customer Tags**: Comma-separated tags (e.g., newsletter,subscriber)
+- **Customer Tags**: Comma-separated tags (e.g., newsletter, subscriber)
 - **Enable Debug Logging**: Toggle logging on/off for troubleshooting
 - **Log Retention**: Automatically delete logs after specified days (1-30)
 
@@ -97,13 +97,9 @@ For issues and questions:
 
 ## License
 
-Licensed under the Apache License 2.0. See LICENSE file for details.
+Licensed under the Apache License 2.0. See the LICENSE file for details.
 
 ## Author
 
 **Gabriel Kanev**  
 Website: [gkanev.com](https://gkanev.com)
-
----
-
-*Transform your Gravity Forms into a powerful customer acquisition tool for your Shopify store.*
