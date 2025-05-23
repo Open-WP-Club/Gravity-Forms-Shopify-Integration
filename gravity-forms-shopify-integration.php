@@ -62,6 +62,11 @@ class GF_Shopify_Integration
    */
   private function log($message, $level = 'info')
   {
+    // Check if logging is enabled
+    if (!get_option('gf_shopify_enable_logging', true)) {
+      return;
+    }
+
     $timestamp = current_time('Y-m-d H:i:s');
     $log_entry = "[{$timestamp}] GF Shopify ({$level}): {$message}";
 
@@ -73,15 +78,35 @@ class GF_Shopify_Integration
     $logs[] = array(
       'timestamp' => $timestamp,
       'level' => $level,
-      'message' => $message
+      'message' => $message,
+      'date' => current_time('Y-m-d')
     );
 
-    // Keep only last 50 log entries
-    if (count($logs) > 50) {
-      $logs = array_slice($logs, -50);
+    // Keep only last 100 log entries
+    if (count($logs) > 100) {
+      $logs = array_slice($logs, -100);
     }
 
     update_option('gf_shopify_debug_logs', $logs);
+
+    // Clean old logs based on retention period
+    $this->clean_old_logs();
+  }
+
+  /**
+   * Clean logs older than retention period
+   */
+  private function clean_old_logs()
+  {
+    $retention_days = get_option('gf_shopify_log_retention_days', 7);
+    $logs = get_option('gf_shopify_debug_logs', array());
+    $cutoff_date = date('Y-m-d', strtotime("-{$retention_days} days"));
+
+    $logs = array_filter($logs, function ($log) use ($cutoff_date) {
+      return $log['date'] >= $cutoff_date;
+    });
+
+    update_option('gf_shopify_debug_logs', array_values($logs));
   }
 
   public function add_admin_menu()
@@ -101,6 +126,8 @@ class GF_Shopify_Integration
     register_setting('gf_shopify_settings', 'gf_shopify_token');
     register_setting('gf_shopify_settings', 'gf_shopify_form_id');
     register_setting('gf_shopify_settings', 'gf_shopify_customer_tags');
+    register_setting('gf_shopify_settings', 'gf_shopify_enable_logging');
+    register_setting('gf_shopify_settings', 'gf_shopify_log_retention_days');
   }
 
   public function settings_page()
@@ -114,113 +141,180 @@ class GF_Shopify_Integration
 ?>
     <div class="wrap">
       <h1>Gravity Forms Shopify Integration Settings</h1>
-      <form method="post" action="options.php">
-        <?php
-        settings_fields('gf_shopify_settings');
-        do_settings_sections('gf_shopify_settings');
-        ?>
-        <table class="form-table">
-          <tr>
-            <th scope="row">Shopify Domain</th>
-            <td>
-              <input type="text" name="gf_shopify_domain" value="<?php echo esc_attr($this->shopify_domain); ?>" class="regular-text" placeholder="your-store.myshopify.com" />
-              <p class="description">Your Shopify store domain (without https://)</p>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Admin API Access Token</th>
-            <td>
-              <input type="password" name="gf_shopify_token" value="<?php echo esc_attr($this->admin_api_token); ?>" class="regular-text" />
-              <p class="description">Create a private app in Shopify Admin with customer read/write permissions</p>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Gravity Form ID</th>
-            <td>
-              <input type="number" name="gf_shopify_form_id" value="<?php echo esc_attr($this->form_id); ?>" class="small-text" />
-              <p class="description">The ID of the Gravity Form to integrate</p>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Customer Tags</th>
-            <td>
-              <input type="text" name="gf_shopify_customer_tags" value="<?php echo esc_attr(get_option('gf_shopify_customer_tags', 'newsletter')); ?>" class="regular-text" />
-              <p class="description">Comma-separated tags to add to customers (e.g., newsletter,subscriber)</p>
-            </td>
-          </tr>
-        </table>
-        <?php submit_button(); ?>
-      </form>
 
-      <hr>
-      <h2>Debug Information</h2>
+      <style>
+        .gf-shopify-container {
+          display: flex;
+          gap: 20px;
+        }
 
-      <div class="card">
-        <h3>Configuration Status</h3>
-        <ul>
-          <li><strong>Shopify Domain:</strong> <?php echo !empty($this->shopify_domain) ? '✅ Set (' . esc_html($this->shopify_domain) . ')' : '❌ Missing'; ?></li>
-          <li><strong>API Token:</strong> <?php echo !empty($this->admin_api_token) ? '✅ Set' : '❌ Missing'; ?></li>
-          <li><strong>Form ID:</strong> <?php echo esc_html($this->form_id); ?></li>
-          <li><strong>Gravity Forms:</strong> <?php echo class_exists('GFForms') ? '✅ Active' : '❌ Not Found'; ?></li>
-          <li><strong>WordPress Debug:</strong> <?php echo WP_DEBUG ? '✅ Enabled' : '❌ Disabled'; ?></li>
-        </ul>
-      </div>
+        .gf-shopify-main {
+          flex: 2;
+        }
 
-      <div class="card" style="margin-top: 20px;">
-        <h3>Recent Activity Logs</h3>
-        <div style="max-height: 400px; overflow-y: auto; background: #f9f9f9; padding: 10px; font-family: monospace; font-size: 12px;">
-          <?php
-          $logs = get_option('gf_shopify_debug_logs', array());
-          if (empty($logs)) {
-            echo '<p>No activity logs yet. Submit a form to see debug information.</p>';
-          } else {
-            $logs = array_reverse($logs); // Show newest first
-            foreach ($logs as $log) {
-              $level_color = array(
-                'error' => '#d63638',
-                'success' => '#00a32a',
-                'info' => '#0073aa'
-              );
-              $color = $level_color[$log['level']] ?? '#333';
-              echo '<div style="margin-bottom: 5px; color: ' . $color . ';">';
-              echo '<strong>' . esc_html($log['timestamp']) . '</strong> [' . strtoupper(esc_html($log['level'])) . '] ';
-              echo esc_html($log['message']);
-              echo '</div>';
-            }
+        .gf-shopify-sidebar {
+          flex: 1;
+          min-width: 400px;
+        }
+
+        .gf-shopify-card {
+          background: #fff;
+          border: 1px solid #ccd0d4;
+          box-shadow: 0 1px 1px rgba(0, 0, 0, .04);
+          padding: 20px;
+          margin-bottom: 20px;
+        }
+
+        .gf-shopify-logs {
+          max-height: 300px;
+          overflow-y: auto;
+          background: #f9f9f9;
+          padding: 10px;
+          font-family: monospace;
+          font-size: 12px;
+          border: 1px solid #ddd;
+        }
+
+        @media (max-width: 1200px) {
+          .gf-shopify-container {
+            flex-direction: column;
           }
-          ?>
-        </div>
-        <p style="margin-top: 10px;">
-          <a href="<?php echo admin_url('options-general.php?page=gf-shopify-settings&clear_logs=1'); ?>"
-            class="button"
-            onclick="return confirm('Are you sure you want to clear all logs?');">Clear Logs</a>
-        </p>
-      </div>
+        }
+      </style>
 
-      <hr>
-      <h2>Setup Instructions</h2>
-      <ol>
-        <li><strong>Create Shopify Private App:</strong>
-          <ul>
-            <li>Go to your Shopify Admin → Apps → App and sales channel settings</li>
-            <li>Click "Develop apps" → "Create an app"</li>
-            <li>Configure Admin API scopes: <code>read_customers, write_customers</code></li>
-            <li>Install the app and copy the Admin API access token</li>
-          </ul>
-        </li>
-        <li><strong>Form Requirements:</strong>
-          <ul>
-            <li>Your Gravity Form must have an email field</li>
-            <li>Optional: Add first name and last name fields</li>
-          </ul>
-        </li>
-        <li><strong>Test the integration:</strong>
-          <ul>
-            <li>Submit your form and check Shopify Admin → Customers</li>
-            <li>Verify the customer is created with the specified tags</li>
-          </ul>
-        </li>
-      </ol>
+      <div class="gf-shopify-container">
+        <div class="gf-shopify-main">
+          <div class="gf-shopify-card">
+            <form method="post" action="options.php">
+              <?php
+              settings_fields('gf_shopify_settings');
+              do_settings_sections('gf_shopify_settings');
+              ?>
+              <table class="form-table">
+                <tr>
+                  <th scope="row">Shopify Domain</th>
+                  <td>
+                    <input type="text" name="gf_shopify_domain" value="<?php echo esc_attr($this->shopify_domain); ?>" class="regular-text" placeholder="your-store.myshopify.com" />
+                    <p class="description">Your Shopify store domain (without https://)</p>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Admin API Access Token</th>
+                  <td>
+                    <input type="password" name="gf_shopify_token" value="<?php echo esc_attr($this->admin_api_token); ?>" class="regular-text" />
+                    <p class="description">Create a private app in Shopify Admin with customer read/write permissions</p>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Gravity Form ID</th>
+                  <td>
+                    <input type="number" name="gf_shopify_form_id" value="<?php echo esc_attr($this->form_id); ?>" class="small-text" />
+                    <p class="description">The ID of the Gravity Form to integrate</p>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Customer Tags</th>
+                  <td>
+                    <input type="text" name="gf_shopify_customer_tags" value="<?php echo esc_attr(get_option('gf_shopify_customer_tags', 'newsletter')); ?>" class="regular-text" />
+                    <p class="description">Comma-separated tags to add to customers (e.g., newsletter,subscriber)</p>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Enable Debug Logging</th>
+                  <td>
+                    <label>
+                      <input type="checkbox" name="gf_shopify_enable_logging" value="1" <?php checked(get_option('gf_shopify_enable_logging', true)); ?> />
+                      Enable detailed logging for troubleshooting
+                    </label>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Log Retention (Days)</th>
+                  <td>
+                    <input type="number" name="gf_shopify_log_retention_days" value="<?php echo esc_attr(get_option('gf_shopify_log_retention_days', 7)); ?>" class="small-text" min="1" max="30" />
+                    <p class="description">Automatically delete logs older than this many days (1-30)</p>
+                  </td>
+                </tr>
+              </table>
+              <?php submit_button(); ?>
+            </form>
+          </div>
+
+          <div class="gf-shopify-card">
+            <h2>Setup Instructions</h2>
+            <ol>
+              <li><strong>Create Shopify Private App:</strong>
+                <ul>
+                  <li>Go to your Shopify Admin → Apps → App and sales channel settings</li>
+                  <li>Click "Develop apps" → "Create an app"</li>
+                  <li>Configure Admin API scopes: <code>read_customers, write_customers</code></li>
+                  <li>Install the app and copy the Admin API access token</li>
+                </ul>
+              </li>
+              <li><strong>Form Requirements:</strong>
+                <ul>
+                  <li>Your Gravity Form must have an email field</li>
+                  <li>Optional: Add first name and last name fields</li>
+                </ul>
+              </li>
+              <li><strong>Test the integration:</strong>
+                <ul>
+                  <li>Submit your form and check Shopify Admin → Customers</li>
+                  <li>Verify the customer is created with the specified tags</li>
+                </ul>
+              </li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="gf-shopify-sidebar">
+          <div class="gf-shopify-card">
+            <h3>Configuration Status</h3>
+            <ul>
+              <li><strong>Shopify Domain:</strong> <?php echo !empty($this->shopify_domain) ? '✅ Set (' . esc_html($this->shopify_domain) . ')' : '❌ Missing'; ?></li>
+              <li><strong>API Token:</strong> <?php echo !empty($this->admin_api_token) ? '✅ Set' : '❌ Missing'; ?></li>
+              <li><strong>Form ID:</strong> <?php echo esc_html($this->form_id); ?></li>
+              <li><strong>Gravity Forms:</strong> <?php echo class_exists('GFForms') ? '✅ Active' : '❌ Not Found'; ?></li>
+              <li><strong>Debug Logging:</strong> <?php echo get_option('gf_shopify_enable_logging', true) ? '✅ Enabled' : '❌ Disabled'; ?></li>
+            </ul>
+          </div>
+
+          <div class="gf-shopify-card">
+            <h3>Recent Activity Logs</h3>
+            <div class="gf-shopify-logs">
+              <?php
+              if (!get_option('gf_shopify_enable_logging', true)) {
+                echo '<p style="color: #d63638;">⚠️ Logging is currently disabled. Enable it above to see debug information.</p>';
+              } else {
+                $logs = get_option('gf_shopify_debug_logs', array());
+                if (empty($logs)) {
+                  echo '<p>No activity logs yet. Submit a form to see debug information.</p>';
+                } else {
+                  $logs = array_reverse(array_slice($logs, -20)); // Show last 20, newest first
+                  foreach ($logs as $log) {
+                    $level_color = array(
+                      'error' => '#d63638',
+                      'success' => '#00a32a',
+                      'info' => '#0073aa'
+                    );
+                    $color = $level_color[$log['level']] ?? '#333';
+                    echo '<div style="margin-bottom: 5px; color: ' . $color . ';">';
+                    echo '<strong>' . esc_html($log['timestamp']) . '</strong> [' . strtoupper(esc_html($log['level'])) . '] ';
+                    echo esc_html($log['message']);
+                    echo '</div>';
+                  }
+                }
+              }
+              ?>
+            </div>
+            <p style="margin-top: 10px;">
+              <a href="<?php echo admin_url('options-general.php?page=gf-shopify-settings&clear_logs=1'); ?>"
+                class="button"
+                onclick="return confirm('Are you sure you want to clear all logs?');">Clear Logs</a>
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 <?php
   }
