@@ -339,7 +339,9 @@ class GF_Shopify_Integration
         'email' => $email,
         'first_name' => $first_name,
         'last_name' => $last_name,
-        'tags' => implode(', ', $tags_array)
+        'tags' => implode(', ', $tags_array),
+        'accepts_marketing' => true,
+        'marketing_opt_in_level' => 'confirmed_opt_in'
       )
     );
 
