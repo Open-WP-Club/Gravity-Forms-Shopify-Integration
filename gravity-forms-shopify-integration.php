@@ -33,9 +33,6 @@ class GF_Shopify_Integration
 
     // Add Settings link to plugins page
     add_filter('plugin_action_links_' . plugin_basename(__FILE__), array($this, 'add_settings_link'));
-
-    // Log plugin initialization
-    $this->log('Plugin initialized');
   }
 
   public function init()
@@ -44,11 +41,6 @@ class GF_Shopify_Integration
     $this->shopify_domain = get_option('gf_shopify_domain');
     $this->admin_api_token = get_option('gf_shopify_token');
     $this->form_id = get_option('gf_shopify_form_id', 1);
-
-    // Log configuration status
-    $this->log('Settings loaded - Domain: ' . (!empty($this->shopify_domain) ? 'Set' : 'Missing') .
-      ', Token: ' . (!empty($this->admin_api_token) ? 'Set' : 'Missing') .
-      ', Form ID: ' . $this->form_id);
   }
 
   public function add_settings_link($links)
