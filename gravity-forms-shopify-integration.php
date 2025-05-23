@@ -4,7 +4,8 @@
  * Plugin Name: Gravity Forms Shopify Integration
  * Description: Sends Gravity Forms submissions to Shopify customer database
  * Version: 1.0.0
- * Author: Your Name
+ * Author: Gabriel Kanev
+ * Author URI: https://gkanev.com
  * Requires at least: 5.0
  * Requires PHP: 7.4
  */
@@ -435,7 +436,12 @@ class GF_Shopify_Integration
         'last_name' => $last_name,
         'tags' => implode(', ', $tags_array),
         'accepts_marketing' => true,
-        'marketing_opt_in_level' => 'confirmed_opt_in'
+        'accepts_marketing_updated_at' => date('c'),
+        'email_marketing_consent' => array(
+          'state' => 'subscribed',
+          'opt_in_level' => 'confirmed_opt_in',
+          'consent_updated_at' => date('c')
+        )
       )
     );
 
@@ -481,6 +487,13 @@ class GF_Shopify_Integration
 
     if ($http_code === 201) {
       $this->log("Customer created successfully", 'success');
+      if ($response) {
+        $response_data = json_decode($response, true);
+        if (isset($response_data['customer']['accepts_marketing'])) {
+          $marketing_status = $response_data['customer']['accepts_marketing'] ? 'subscribed' : 'not subscribed';
+          $this->log("Customer marketing status: {$marketing_status}");
+        }
+      }
       return true;
     } elseif ($http_code === 422) {
       $this->log("Customer might already exist (422), trying to update");
@@ -541,10 +554,41 @@ class GF_Shopify_Integration
     $customer_id = $data['customers'][0]['id'];
     $this->log("Found existing customer with ID: {$customer_id}");
 
-    // For existing customers, we just log success since customer already exists
-    // Could add tag updates here if needed
-    $this->log("Customer already exists, skipping creation", 'info');
-    return true;
+    // Update existing customer's marketing preferences
+    $update_url = "https://{$clean_domain}/admin/api/2023-10/customers/{$customer_id}.json";
+
+    $update_data = array(
+      'customer' => array(
+        'id' => $customer_id,
+        'accepts_marketing' => true,
+        'marketing_opt_in_level' => 'confirmed_opt_in'
+      )
+    );
+
+    $headers = array(
+      'Content-Type: application/json',
+      'X-Shopify-Access-Token: ' . $this->admin_api_token
+    );
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $update_url);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($update_data));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($http_code === 200) {
+      $this->log("Updated existing customer marketing preferences", 'success');
+      return true;
+    } else {
+      $this->log("Failed to update customer marketing preferences - HTTP {$http_code}: {$response}", 'error');
+      return false;
+    }
   }
 }
 

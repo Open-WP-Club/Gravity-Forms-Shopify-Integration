@@ -5,11 +5,12 @@ A WordPress plugin that automatically sends Gravity Forms submissions to your Sh
 ## Features
 
 - **Seamless Integration**: Connects Gravity Forms with Shopify Customer API
-- **Marketing Opt-in**: Automatically subscribes customers to marketing emails
+- **Marketing Opt-in**: Automatically subscribes customers to marketing emails with proper consent tracking
 - **Custom Tags**: Add configurable tags to customers (default: newsletter)
 - **Name Field Support**: Captures first and last names when available
-- **Debug Logging**: Comprehensive logging for troubleshooting
-- **Admin Interface**: Easy configuration via WordPress admin
+- **Smart Updates**: Creates new customers or updates existing ones with marketing preferences
+- **Debug Logging**: Comprehensive logging with retention controls
+- **Modern Admin Interface**: Clean two-column design with real-time status monitoring
 
 ## Requirements
 
@@ -34,6 +35,7 @@ A WordPress plugin that automatically sends Gravity Forms submissions to your Sh
 4. Configure Admin API scopes:
    - `read_customers`
    - `write_customers`
+   - `write_customers_marketing_consent`
 5. Install the app and copy the Admin API access token
 
 ## Plugin Configuration
@@ -44,6 +46,8 @@ Navigate to **Settings → GF Shopify** and configure:
 - **Admin API Access Token**: From your private app
 - **Gravity Form ID**: ID of the form to integrate
 - **Customer Tags**: Comma-separated tags (e.g., newsletter,subscriber)
+- **Enable Debug Logging**: Toggle logging on/off for troubleshooting
+- **Log Retention**: Automatically delete logs after specified days (1-30)
 
 ## Form Requirements
 
@@ -59,20 +63,21 @@ Your Gravity Form must include:
 3. Creates/updates customer in Shopify with:
    - Email address
    - First/last name (if provided)
-   - Marketing subscription (enabled)
+   - Marketing subscription with confirmed opt-in consent
    - Custom tags
-   - Confirmed opt-in level
+   - Proper consent timestamps
 
 ## Debugging
 
-The plugin includes comprehensive logging accessible via the admin interface:
+The plugin includes comprehensive logging with retention controls:
 
-- Configuration status validation
-- Form submission tracking
-- API request/response monitoring
-- Error logging with specific details
+- **Two-column admin interface** with real-time status monitoring
+- **Configurable logging** - enable/disable as needed  
+- **Automatic log cleanup** based on retention period
+- **Form submission tracking** with detailed field mapping
+- **API request/response monitoring** with error details
 
-Check **Settings → GF Shopify → Debug Information** for troubleshooting.
+Check **Settings → GF Shopify** for configuration status and recent activity logs.
 
 ## Common Issues
 
