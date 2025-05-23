@@ -20,7 +20,6 @@ class GF_Shopify_Integration
   private $shopify_domain;
   private $admin_api_token;
   private $form_id;
-  private $waitlist_count;
 
   public function __construct()
   {
@@ -30,6 +29,12 @@ class GF_Shopify_Integration
 
     // Hook into Gravity Forms submission
     add_action('gform_after_submission', array($this, 'handle_form_submission'), 10, 2);
+
+    // Add Settings link to plugins page
+    add_filter('plugin_action_links_' . plugin_basename(__FILE__), array($this, 'add_settings_link'));
+
+    // Log plugin initialization
+    $this->log('Plugin initialized');
   }
 
   public function init()
@@ -38,7 +43,45 @@ class GF_Shopify_Integration
     $this->shopify_domain = get_option('gf_shopify_domain');
     $this->admin_api_token = get_option('gf_shopify_token');
     $this->form_id = get_option('gf_shopify_form_id', 1);
-    $this->waitlist_count = get_option('gf_shopify_waitlist_count', 1);
+
+    // Log configuration status
+    $this->log('Settings loaded - Domain: ' . (!empty($this->shopify_domain) ? 'Set' : 'Missing') .
+      ', Token: ' . (!empty($this->admin_api_token) ? 'Set' : 'Missing') .
+      ', Form ID: ' . $this->form_id);
+  }
+
+  public function add_settings_link($links)
+  {
+    $settings_link = '<a href="' . admin_url('options-general.php?page=gf-shopify-settings') . '">' . __('Settings') . '</a>';
+    array_unshift($links, $settings_link);
+    return $links;
+  }
+
+  /**
+   * Log messages for debugging
+   */
+  private function log($message, $level = 'info')
+  {
+    $timestamp = current_time('Y-m-d H:i:s');
+    $log_entry = "[{$timestamp}] GF Shopify ({$level}): {$message}";
+
+    // WordPress debug log
+    error_log($log_entry);
+
+    // Store in custom option for admin display
+    $logs = get_option('gf_shopify_debug_logs', array());
+    $logs[] = array(
+      'timestamp' => $timestamp,
+      'level' => $level,
+      'message' => $message
+    );
+
+    // Keep only last 50 log entries
+    if (count($logs) > 50) {
+      $logs = array_slice($logs, -50);
+    }
+
+    update_option('gf_shopify_debug_logs', $logs);
   }
 
   public function add_admin_menu()
@@ -57,12 +100,17 @@ class GF_Shopify_Integration
     register_setting('gf_shopify_settings', 'gf_shopify_domain');
     register_setting('gf_shopify_settings', 'gf_shopify_token');
     register_setting('gf_shopify_settings', 'gf_shopify_form_id');
-    register_setting('gf_shopify_settings', 'gf_shopify_waitlist_count');
     register_setting('gf_shopify_settings', 'gf_shopify_customer_tags');
   }
 
   public function settings_page()
   {
+    // Handle clear logs action
+    if (isset($_GET['clear_logs']) && $_GET['clear_logs'] == '1') {
+      delete_option('gf_shopify_debug_logs');
+      echo '<div class="notice notice-success"><p>Debug logs cleared successfully.</p></div>';
+    }
+
 ?>
     <div class="wrap">
       <h1>Gravity Forms Shopify Integration Settings</h1>
@@ -94,22 +142,60 @@ class GF_Shopify_Integration
             </td>
           </tr>
           <tr>
-            <th scope="row">Waitlist Count</th>
-            <td>
-              <input type="number" name="gf_shopify_waitlist_count" value="<?php echo esc_attr($this->waitlist_count); ?>" class="small-text" />
-              <p class="description">Number of items customer can purchase (sets waitlist_count metafield)</p>
-            </td>
-          </tr>
-          <tr>
             <th scope="row">Customer Tags</th>
             <td>
-              <input type="text" name="gf_shopify_customer_tags" value="<?php echo esc_attr(get_option('gf_shopify_customer_tags', 'waitlist')); ?>" class="regular-text" />
-              <p class="description">Comma-separated tags to add to customers (e.g., waitlist,newsletter)</p>
+              <input type="text" name="gf_shopify_customer_tags" value="<?php echo esc_attr(get_option('gf_shopify_customer_tags', 'newsletter')); ?>" class="regular-text" />
+              <p class="description">Comma-separated tags to add to customers (e.g., newsletter,subscriber)</p>
             </td>
           </tr>
         </table>
         <?php submit_button(); ?>
       </form>
+
+      <hr>
+      <h2>Debug Information</h2>
+
+      <div class="card">
+        <h3>Configuration Status</h3>
+        <ul>
+          <li><strong>Shopify Domain:</strong> <?php echo !empty($this->shopify_domain) ? '✅ Set (' . esc_html($this->shopify_domain) . ')' : '❌ Missing'; ?></li>
+          <li><strong>API Token:</strong> <?php echo !empty($this->admin_api_token) ? '✅ Set' : '❌ Missing'; ?></li>
+          <li><strong>Form ID:</strong> <?php echo esc_html($this->form_id); ?></li>
+          <li><strong>Gravity Forms:</strong> <?php echo class_exists('GFForms') ? '✅ Active' : '❌ Not Found'; ?></li>
+          <li><strong>WordPress Debug:</strong> <?php echo WP_DEBUG ? '✅ Enabled' : '❌ Disabled'; ?></li>
+        </ul>
+      </div>
+
+      <div class="card" style="margin-top: 20px;">
+        <h3>Recent Activity Logs</h3>
+        <div style="max-height: 400px; overflow-y: auto; background: #f9f9f9; padding: 10px; font-family: monospace; font-size: 12px;">
+          <?php
+          $logs = get_option('gf_shopify_debug_logs', array());
+          if (empty($logs)) {
+            echo '<p>No activity logs yet. Submit a form to see debug information.</p>';
+          } else {
+            $logs = array_reverse($logs); // Show newest first
+            foreach ($logs as $log) {
+              $level_color = array(
+                'error' => '#d63638',
+                'success' => '#00a32a',
+                'info' => '#0073aa'
+              );
+              $color = $level_color[$log['level']] ?? '#333';
+              echo '<div style="margin-bottom: 5px; color: ' . $color . ';">';
+              echo '<strong>' . esc_html($log['timestamp']) . '</strong> [' . strtoupper(esc_html($log['level'])) . '] ';
+              echo esc_html($log['message']);
+              echo '</div>';
+            }
+          }
+          ?>
+        </div>
+        <p style="margin-top: 10px;">
+          <a href="<?php echo admin_url('options-general.php?page=gf-shopify-settings&clear_logs=1'); ?>"
+            class="button"
+            onclick="return confirm('Are you sure you want to clear all logs?');">Clear Logs</a>
+        </p>
+      </div>
 
       <hr>
       <h2>Setup Instructions</h2>
@@ -131,7 +217,7 @@ class GF_Shopify_Integration
         <li><strong>Test the integration:</strong>
           <ul>
             <li>Submit your form and check Shopify Admin → Customers</li>
-            <li>Verify the waitlist_count metafield is set correctly</li>
+            <li>Verify the customer is created with the specified tags</li>
           </ul>
         </li>
       </ol>
@@ -141,29 +227,39 @@ class GF_Shopify_Integration
 
   public function handle_form_submission($entry, $form)
   {
+    $this->log("Form submission received - Form ID: {$form['id']} (Target: {$this->form_id})");
+
     // Only process the specified form
     if ($form['id'] != $this->form_id) {
+      $this->log("Skipping form - ID mismatch");
       return;
     }
+
+    $this->log("Processing form submission - Entry ID: {$entry['id']}");
 
     // Get email from form submission
     $email = $this->get_field_value($entry, $form, 'email');
     if (empty($email)) {
-      error_log('GF Shopify: No email found in form submission');
+      $this->log('No email found in form submission', 'error');
+      $this->log('Available entry data: ' . print_r(array_keys($entry), true));
       return;
     }
+
+    $this->log("Email found: {$email}");
 
     // Get optional name fields
     $first_name = $this->get_field_value($entry, $form, 'name.3') ?: $this->get_field_value($entry, $form, 'text');
     $last_name = $this->get_field_value($entry, $form, 'name.6') ?: '';
 
+    $this->log("Name fields - First: '{$first_name}', Last: '{$last_name}'");
+
     // Send to Shopify
     $result = $this->create_shopify_customer($email, $first_name, $last_name);
 
     if ($result) {
-      error_log("GF Shopify: Successfully created/updated customer: {$email}");
+      $this->log("Successfully created/updated customer: {$email}", 'success');
     } else {
-      error_log("GF Shopify: Failed to create/update customer: {$email}");
+      $this->log("Failed to create/update customer: {$email}", 'error');
     }
   }
 
@@ -190,35 +286,64 @@ class GF_Shopify_Integration
     return '';
   }
 
-  private function create_shopify_customer($email, $first_name = '', $last_name = '')
+  /**
+   * Clean and validate Shopify domain format
+   */
+  private function clean_shopify_domain($domain)
   {
-    if (empty($this->shopify_domain) || empty($this->admin_api_token)) {
-      error_log('GF Shopify: Missing Shopify configuration');
+    if (empty($domain)) {
       return false;
     }
 
-    $url = "https://{$this->shopify_domain}/admin/api/2023-10/customers.json";
+    // Remove protocol if present
+    $domain = preg_replace('#^https?://#', '', $domain);
+
+    // Remove trailing slash
+    $domain = rtrim($domain, '/');
+
+    // Validate format: should end with .myshopify.com
+    if (!preg_match('/^[a-zA-Z0-9\-]+\.myshopify\.com$/', $domain)) {
+      return false;
+    }
+
+    return $domain;
+  }
+
+  private function create_shopify_customer($email, $first_name = '', $last_name = '')
+  {
+    if (empty($this->shopify_domain) || empty($this->admin_api_token)) {
+      $this->log('Missing Shopify configuration - Domain: ' . (!empty($this->shopify_domain) ? 'OK' : 'MISSING') .
+        ', Token: ' . (!empty($this->admin_api_token) ? 'OK' : 'MISSING'), 'error');
+      return false;
+    }
+
+    $this->log("Creating Shopify customer for: {$email}");
+
+    // Clean and validate domain
+    $clean_domain = $this->clean_shopify_domain($this->shopify_domain);
+    if (!$clean_domain) {
+      $this->log("Invalid Shopify domain format: {$this->shopify_domain}", 'error');
+      return false;
+    }
+
+    $url = "https://{$clean_domain}/admin/api/2023-10/customers.json";
 
     // Prepare customer tags
-    $tags = get_option('gf_shopify_customer_tags', 'waitlist');
+    $tags = get_option('gf_shopify_customer_tags', 'newsletter');
     $tags_array = array_map('trim', explode(',', $tags));
+
+    $this->log("Tags to apply: " . implode(', ', $tags_array));
 
     $customer_data = array(
       'customer' => array(
         'email' => $email,
         'first_name' => $first_name,
         'last_name' => $last_name,
-        'tags' => implode(', ', $tags_array),
-        'metafields' => array(
-          array(
-            'namespace' => 'custom',
-            'key' => 'waitlist_count',
-            'value' => $this->waitlist_count,
-            'type' => 'number_integer'
-          )
-        )
+        'tags' => implode(', ', $tags_array)
       )
     );
+
+    $this->log("Customer data prepared: " . json_encode($customer_data));
 
     $headers = array(
       'Content-Type: application/json',
@@ -232,26 +357,57 @@ class GF_Shopify_Integration
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true); // Follow redirects
+    curl_setopt($ch, CURLOPT_MAXREDIRS, 3); // Max 3 redirects
+
+    $this->log("Sending API request to: {$url}");
 
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $effective_url = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+    $curl_error = curl_error($ch);
     curl_close($ch);
 
+    $this->log("API Response - HTTP Code: {$http_code}");
+
+    if ($effective_url !== $url) {
+      $this->log("URL Redirect detected - Original: {$url}, Final: {$effective_url}", 'error');
+    }
+
+    if (!empty($curl_error)) {
+      $this->log("CURL Error: {$curl_error}", 'error');
+      return false;
+    }
+
+    if ($response) {
+      $this->log("API Response Body: " . substr($response, 0, 500) . (strlen($response) > 500 ? '...' : ''));
+    }
+
     if ($http_code === 201) {
+      $this->log("Customer created successfully", 'success');
       return true;
     } elseif ($http_code === 422) {
-      // Customer might already exist, try to update
+      $this->log("Customer might already exist (422), trying to update");
       return $this->update_existing_customer($email);
     } else {
-      error_log("GF Shopify API Error: HTTP {$http_code} - {$response}");
+      $this->log("API Error - HTTP {$http_code}: {$response}", 'error');
       return false;
     }
   }
 
   private function update_existing_customer($email)
   {
+    $this->log("Searching for existing customer: {$email}");
+
+    // Clean and validate domain
+    $clean_domain = $this->clean_shopify_domain($this->shopify_domain);
+    if (!$clean_domain) {
+      $this->log("Invalid Shopify domain format during customer search: {$this->shopify_domain}", 'error');
+      return false;
+    }
+
     // First, find the customer by email
-    $search_url = "https://{$this->shopify_domain}/admin/api/2023-10/customers/search.json?query=email:{$email}";
+    $search_url = "https://{$clean_domain}/admin/api/2023-10/customers/search.json?query=email:{$email}";
 
     $headers = array(
       'X-Shopify-Access-Token: ' . $this->admin_api_token
@@ -265,51 +421,34 @@ class GF_Shopify_Integration
 
     $response = curl_exec($ch);
     $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
     curl_close($ch);
 
+    if (!empty($curl_error)) {
+      $this->log("CURL Error during customer search: {$curl_error}", 'error');
+      return false;
+    }
+
+    $this->log("Customer search response - HTTP Code: {$http_code}");
+
     if ($http_code !== 200) {
-      error_log("GF Shopify: Failed to search for customer: {$email}");
+      $this->log("Failed to search for customer - HTTP {$http_code}: {$response}", 'error');
       return false;
     }
 
     $data = json_decode($response, true);
     if (empty($data['customers'])) {
-      error_log("GF Shopify: Customer not found: {$email}");
+      $this->log("Customer not found in search results", 'error');
       return false;
     }
 
     $customer_id = $data['customers'][0]['id'];
+    $this->log("Found existing customer with ID: {$customer_id}");
 
-    // Update the customer's metafield
-    $metafield_url = "https://{$this->shopify_domain}/admin/api/2023-10/customers/{$customer_id}/metafields.json";
-
-    $metafield_data = array(
-      'metafield' => array(
-        'namespace' => 'custom',
-        'key' => 'waitlist_count',
-        'value' => $this->waitlist_count,
-        'type' => 'number_integer'
-      )
-    );
-
-    $headers = array(
-      'Content-Type: application/json',
-      'X-Shopify-Access-Token: ' . $this->admin_api_token
-    );
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $metafield_url);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($metafield_data));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-    $response = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    return $http_code === 201;
+    // For existing customers, we just log success since customer already exists
+    // Could add tag updates here if needed
+    $this->log("Customer already exists, skipping creation", 'info');
+    return true;
   }
 }
 
