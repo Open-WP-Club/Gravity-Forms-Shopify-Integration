@@ -2,6 +2,7 @@
 
 /**
  * Plugin Name: Gravity Forms Shopify Integration
+ * Tested up to: 7.1.4
  * Description: Sends Gravity Forms submissions to Shopify customer database
  * Version: 1.0.0
  * Author: Gabriel Kanev
